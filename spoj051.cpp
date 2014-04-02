@@ -43,6 +43,11 @@ public:
         return vertex_edges_.size();
     }
 
+    inline std::size_t PushVertex() {
+        vertex_edges_.push_back(OutgoingEdgeList());
+        return vertex_edges_.size()-1;
+    }
+
     inline void CreateEdge(std::size_t u, std::size_t v) {
         std::size_t further = std::max(u, v);
         if (further >= vertex_edges_.size())
@@ -98,6 +103,7 @@ struct DfsVisitorBase {
     inline void OnTreeEdge(Graph& g, typename Graph::Edge& e) { }
     inline void OnBackEdge(Graph& g, typename Graph::Edge& e) { }
     inline void OnCrossOrForwardEdge(Graph& g, typename Graph::Edge& e) { }
+    inline void OnTreeStart(Graph& g, std::size_t root) { }
     inline void OnTreeFinish(Graph& g, std::size_t root) { }
 };
 
@@ -111,10 +117,9 @@ void DfsVisit(Graph& graph, Visitor& visitor, ColorMap& colors, std::size_t u_in
 
     for_outedge(edge_iterator, graph.EdgeListOf(u_index)) {
         typename Graph::Edge edge(*edge_iterator, u_index);
-
         if (colors.at(edge_iterator->dst) == impl::WHITE) {
             visitor.OnTreeEdge(graph, edge);
-            //DfsVisit(graph, visitor, colors, edge_iterator->dst);
+            DfsVisit(graph, visitor, colors, edge_iterator->dst);
         }
         else if (colors.at(edge_iterator->dst) == impl::GRAY) {
             visitor.OnBackEdge(graph, edge);
@@ -122,6 +127,7 @@ void DfsVisit(Graph& graph, Visitor& visitor, ColorMap& colors, std::size_t u_in
         else {
             visitor.OnCrossOrForwardEdge(graph, edge);
         }
+
     }
 
     colors.at(u_index) = impl::BLACK;
@@ -136,6 +142,7 @@ void DeepFirstSearch(Graph& graph, Visitor& visitor) {
     std::vector<int> colors(graph.VerticesCount(), impl::WHITE);
     for (std::size_t vertex_index = 0; vertex_index < graph.VerticesCount(); ++vertex_index)
         if (colors.at(vertex_index) == impl::WHITE) {
+            visitor.OnTreeStart(graph, vertex_index);
             DfsVisit(graph, visitor, colors, vertex_index);
             visitor.OnTreeFinish(graph, vertex_index);
         }
@@ -153,13 +160,14 @@ void DeepFirstSearch(Graph& graph, Visitor& visitor, std::vector<std::size_t> ve
 
     for (std::size_t index = 0; index < vertices_order.size(); ++index) {
         if (colors.at(vertices_order.at(index)) == impl::WHITE) {
+            visitor.OnTreeStart(graph, vertices_order.at(index));
             DfsVisit(graph, visitor, colors, vertices_order.at(index));
+            visitor.OnTreeFinish(graph, vertices_order.at(index));
         }
-        visitor.OnTreeFinish(graph, vertices_order.at(index));
     }
 }
 
-
+#define D(exp) std::cout << exp << std::endl
 template <typename Graph>
 struct VertexFinishOrderVisitor : public DfsVisitorBase<Graph> {
     inline void OnVertexFinish(Graph& g, std::size_t u) {
@@ -170,56 +178,133 @@ struct VertexFinishOrderVisitor : public DfsVisitorBase<Graph> {
 
 template <typename Graph>
 struct SccVisitor : public DfsVisitorBase<Graph> {
-    SccVisitor() {
-        finished = false;
-        tree_count = 0;
+    //std::vector<std::vector<std::size_t> > scc;
+    std::vector<std::size_t> vertices_roots;
+    std::vector<std::size_t> scc_sizes;
+    std::size_t current_root;
+    std::size_t current_scc_id;
+    std::size_t current_scc_count;
+    Graph scc_graph;
+    SccVisitor(Graph& orig) {
+        vertices_roots.resize(orig.VerticesCount());
+        scc_sizes.resize(orig.VerticesCount());
+        for (std::size_t i = 0; i < vertices_roots.size(); ++i)
+            vertices_roots[i] = -1;
+        current_root = -1;
+        current_scc_id = -1;
+        current_scc_count = 0;
     }
     inline void OnVertexStart(Graph& g, std::size_t u) {
-        if (!finished)
-            ++tree_count;
+        //scc.back().push_back(u);
+        //vertices_roots[u] = current_root;
+        vertices_roots[u] = current_scc_id;
+        ++current_scc_count;
+    }
+    inline void OnTreeStart(Graph& g, std::size_t root) {
+        //scc.push_back(std::vector<std::size_t>());
+        current_root = root;
+        current_scc_count = 0;
+        ++current_scc_id;
+        //D( current_scc_count );
+
+        //tree_roots.push_back(root);
+        scc_graph.PushVertex();
     }
     inline void OnTreeFinish(Graph& g, std::size_t root) {
-        finished = true;
+        scc_sizes[vertices_roots.at(root)] = current_scc_count;
+        // D( vertices_roots.at(root) );
+        // D( root );
+        // D( scc_sizes[vertices_roots.at(root)] );
     }
-    bool finished;
-    std::size_t tree_count;
+    inline void OnTreeEdge(Graph& g, typename Graph::Edge& e) { 
+    }
+    inline void OnCrossOrForwardEdge(Graph& g, typename Graph::Edge& e) {
+        if (vertices_roots.at(e.dst) != vertices_roots.at(e.src))
+            scc_graph.CreateEdge( vertices_roots.at(e.dst), vertices_roots.at(e.src) );
+        // PrintEdge(e); 
+        // D (vertices_roots.at(e.dst) << "," << vertices_roots.at(e.src));
+    }
+    inline void OnBackEdge(Graph& g, typename Graph::Edge& e) { 
+        //PrintEdge(e); 
+
+    }
+    // inline void OnCrossOrForwardEdge(Graph& g, typename Graph::Edge& e) { PrintEdge(e); }
+    inline void PrintEdge(typename Graph::Edge& e) { D( e.src+1 << "->" << e.dst+1 ); }
 };
 
+
+
+template <typename Graph>
+struct DebugPrinter : public DfsVisitorBase<Graph> {
+    inline void OnTreeEdge(Graph& g, typename Graph::Edge& e) { PrintEdge(e); }
+    inline void OnBackEdge(Graph& g, typename Graph::Edge& e) { PrintEdge(e); }
+    inline void OnCrossOrForwardEdge(Graph& g, typename Graph::Edge& e) { PrintEdge(e); }
+    inline void PrintEdge(typename Graph::Edge& e) { D( e.src+1 << "->" << e.dst+1 ); }
+};
 
 /**
  * Strongly connected components algorithm
  */
 template <typename Graph, typename Visitor>
-void StronglyConnectedComponents(Graph& graph, Visitor& visitor) {
+void StronglyConnectedComponents(Graph& graph, Graph& transposed_graph,  Visitor& visitor) {
     // DFS
     VertexFinishOrderVisitor<Graph> scc_visitor;
     DeepFirstSearch(graph, scc_visitor);
 
     // DFS on transposed graph with reversed order (based on 1st DFS visit time)
     std::reverse(scc_visitor.visit_order.begin(), scc_visitor.visit_order.end());
-    Graph transposed_graph;
-    Transpose(graph, transposed_graph);
-    //for (int i = 0; i < graph.VerticesCount(); ++i)
+    //Graph transposed_graph;
+    //Transpose(graph, transposed_graph);
     DeepFirstSearch(transposed_graph, visitor, scc_visitor.visit_order);
 }
 
 class Algorithm {
     typedef AdjacencyList Graph;
     Graph graph_;
+    Graph transposed_graph_;
+    //Graph graph_tr_;
     std::size_t result;
 public:
     void ReadInput();
     void Run();
     void PrintOutput();
-} algo;
+};
 
 /**
  * Runs the algorithm - based on BFS
  */
 void Algorithm::Run() {
-    SccVisitor<Graph> scc_visitor;
-    StronglyConnectedComponents(graph_, scc_visitor);
-    result = scc_visitor.tree_count;
+    SccVisitor<Graph> scc_visitor(graph_);
+    StronglyConnectedComponents(graph_, transposed_graph_, scc_visitor);
+
+    Graph transposed_scc_graph;
+    Transpose(scc_visitor.scc_graph, transposed_scc_graph);
+    result = 0;
+    std::size_t noin_vertex_count = 0;
+    //D( transposed_scc_graph.VerticesCount() );
+    for (std::size_t i = 0; i < transposed_scc_graph.VerticesCount(); ++i) {
+        if (transposed_scc_graph.EdgeListOf(i).size() == 0) {
+            ++noin_vertex_count;
+            result = scc_visitor.scc_sizes[i];
+        }
+        // D( scc_visitor.scc_sizes[i] );
+        // D( transposed_scc_graph.EdgeListOf(i).size() );
+    }
+    // D( "noin_vertex_count=" << noin_vertex_count );
+    // D( "result=" << result );
+    if (noin_vertex_count > 1) {
+        result = 0;
+    }
+
+    //DebugPrinter<Graph> dprinter;
+    //DeepFirstSearch(transposed_scc_graph, dprinter);
+
+    // for (int i = 0; i < scc_visitor.scc.size(); ++i) {
+    //     for (int j = 0; j < scc_visitor.scc[i].size(); ++j)
+    //         std::cout << scc_visitor.scc[i][j]+1 << ", ";
+    //     std::cout << std::endl;
+    // }
+    // result = scc_visitor.tree_count;
 }
 
 /**
@@ -230,12 +315,13 @@ void Algorithm::ReadInput() {
     scanf("%d", &participants_count);
     graph_.CreateVertices(participants_count);
     for (int participant = 1; participant <= participants_count; ++participant) {
-        int losing_count;
-        scanf("%d", &losing_count);
-        for (int looser = 1; looser <= losing_count; ++looser) {
-            int looser_id;
-            scanf("%d", &looser_id);
-            graph_.CreateEdge(participant-1, looser_id-1);
+        int winner_count;
+        scanf("%d", &winner_count);
+        for (int winner = 1; winner <= winner_count; ++winner) {
+            int winner_id;
+            scanf("%d", &winner_id);
+            graph_.CreateEdge(winner_id-1, participant-1);
+            transposed_graph_.CreateEdge(participant-1, winner_id-1);
         }
     }
 }
@@ -251,6 +337,7 @@ void Algorithm::PrintOutput() {
  * Run single test case
  */
 void run_testcase() {
+    Algorithm algo;
     algo.ReadInput();
     algo.Run();
     algo.PrintOutput();
@@ -274,6 +361,18 @@ int main() {
     run_tests_loop();
     return 0;
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
