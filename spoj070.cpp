@@ -5,7 +5,6 @@
 // Works only with MSCS 10 + or gcc, clang or other compiler with __typeof
 #if (_MSC_VER >= 1600) 
 #define __typeof decltype
-#else 
 #endif
 #define var(v, n) __typeof(n) v=(n)
 #define for_each(i, c) for ( var(i, (c).begin()); i != (c).end(); ++i)
@@ -16,7 +15,6 @@
  */
 struct Edge {
     int dst;
-    int type;
 };
 
 /**
@@ -35,22 +33,24 @@ public:
     typedef std::vector<Edge> OutgoingEdgeList;
     typedef std::vector<Vertex> VertexOutgoingEdges;
 
-    inline std::size_t CreateVertices(std::size_t u) {
+    inline void CreateVertices(std::size_t u) {
         vertices_.resize(u);
-        for_each(v, vertices_)
-            v->sibling = -1;
-        return vertices_.size();
+        for (int i = 0; i < vertices_.size(); ++i)
+            vertices_[i].sibling = i;
     }
     inline void CreateEdge(int u, int v, int type) {
         int further = std::max(u, v);
         if (further >= vertices_.size())
             vertices_.resize(further+1);
         if (type == 0) {
-            int last = u;
-            while ()
+			std::swap(vertices_[v].sibling, vertices_[u].sibling);
+            return;
         }
-        Edge e = { v, type };
-        EdgeListOf(u).push_back( e );
+        Edge e = { v };
+        EdgeListOf(u).push_back(e);
+    }
+    inline Vertex& VertexAt(int u) {
+        return vertices_[u]; 
     }
     inline OutgoingEdgeList& EdgeListOf(int u) {
         return vertices_[u].edges; 
@@ -58,6 +58,7 @@ public:
     inline int VerticesCount() {
         return vertices_.size();
     }
+
 private:
     VertexOutgoingEdges vertices_;
 };
@@ -67,14 +68,14 @@ class Algorithm {
     AdjacencyList graph_;
     int finish_timer_;
     int result;
-    std::vector<bool> visited_;
     std::vector<int> finish_times_;
     std::vector<int> depths_;
 public:
     void ReadInput();
     void Run();
     void PrintOutput();
-    int TopologicDfsVisit(int u, int edge_type);
+    void TopologicDfsVisit(int u);
+	int MinSibling(int u);
 };
 
 /**
@@ -89,6 +90,7 @@ void Algorithm::ReadInput() {
     while (edges--) {
         int u, v, relation;
         scanf("%d %d %d", &u, &v, &relation);
+		--u; --v;
         if (relation == -1) // <
             graph_.CreateEdge(u, v, 1);
         else if (relation == 1) // >
@@ -104,21 +106,20 @@ void Algorithm::ReadInput() {
 void Algorithm::Run() {
     finish_timer_ = 0;
     result = 0;
-    finish_times_.resize( graph_.VerticesCount(), -1 );
-    depths_.resize( graph_.VerticesCount(), 0 );
-    visited_.resize( graph_.VerticesCount(), false );
+    finish_times_.resize(graph_.VerticesCount(), -1);
+    depths_.resize(graph_.VerticesCount(),  -1);
 
     for (int vertex = 0; vertex < graph_.VerticesCount(); ++vertex)
-        if (!visited_[vertex])
-            TopologicDfsVisit(vertex, 0);
-    bool cycle_found = false;
-    for (int vertex = 0; vertex < graph_.VerticesCount() && !cycle_found; ++vertex) {
+		if (depths_[vertex] == -1)
+            TopologicDfsVisit(vertex);
+
+    for (int vertex = 0; vertex < graph_.VerticesCount(); ++vertex) {
         result = std::max(result, depths_[vertex]);
         for_each(edge, graph_.EdgeListOf(vertex)) {
-            if (finish_times_[vertex] < finish_times_[edge->dst] && edge->type != 0) {
-                cycle_found = true;
+			int v = MinSibling(edge->dst);
+            if (finish_times_[vertex] <= finish_times_[v]) {
                 result = -1;
-                break;
+                return;
             }
         }
     }
@@ -127,15 +128,33 @@ void Algorithm::Run() {
 /**
  * Toologicly orderging DFS visit
  */ 
-int Algorithm::TopologicDfsVisit(int u, int edge_type) {
-    visited_[u] = true;
+void Algorithm::TopologicDfsVisit(int u) {
+	depths_[u] = 0;
+    // Visit all adjacent nodes
     for_each(edge, graph_.EdgeListOf(u)) {
-        if (!visited_[edge->dst])
-            TopologicDfsVisit(edge->dst, edge->type);
-        depths_[u] = std::max(depths_[u], depths_[edge->dst]+edge->type);
+        if (depths_[edge->dst] == -1)
+            TopologicDfsVisit(edge->dst);
+        depths_[u] = std::max(depths_[u], depths_[edge->dst]+1);
     }
+
+	// Visit nodes on cyclic list representing "==" relation
+	if (graph_.VertexAt(u).sibling != u) {
+		if (depths_[graph_.VertexAt(u).sibling] == -1)
+			TopologicDfsVisit(graph_.VertexAt(u).sibling);
+		depths_[u] = std::max(depths_[u], depths_[graph_.VertexAt(u).sibling]);
+	}
+
     finish_times_[u] = ++finish_timer_;
-    return depths_[u];
+}
+
+int Algorithm::MinSibling(int u) {
+	int start = u;
+	int result = u;
+	while (graph_.VertexAt(u).sibling != start) {
+		u = graph_.VertexAt(u).sibling;
+		result = std::min(result, u);
+	}
+	return result;
 }
 
 /**
